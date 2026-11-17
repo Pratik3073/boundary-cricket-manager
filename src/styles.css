@@ -1577,4 +1577,49 @@ td small {
     font-size: 20px;
   }
 }
+.team-performance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
 
+.performance-card {
+  margin-bottom: 0;
+}
+
+.performance-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.performance-table th,
+.performance-table td {
+  padding: 15px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.performance-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.performance-table td {
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .team-performance-section {
+    gap: 16px;
+  }
+
+  .performance-card {
+    padding: 14px;
+  }
+
+  .performance-table {
+    min-width: 700px;
+  }
+}

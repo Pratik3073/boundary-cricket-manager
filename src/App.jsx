@@ -11,7 +11,7 @@ import {
 
 import { isSupabaseConfigured, supabase } from './services/supabase';
 import {
-  createMatch, deletePlayer, finishMatch, getMatchBundle,
+  createMatch, deleteMatch, deletePlayer, finishMatch, getMatchBundle,
   getMatches, getPlayers, recordDelivery, savePlayer,
   startInnings, undoDelivery
 } from './services/data';
@@ -331,6 +331,7 @@ function AdminPage() {
   const [matches, setMatches] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
 
   async function load() {
     try {
@@ -344,6 +345,24 @@ function AdminPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  async function handleDeleteMatch(match) {
+    const confirmed = window.confirm(
+      `Delete the match \"${match.team_a_name} vs ${match.team_b_name}\"?\n\nThis permanently deletes its innings, deliveries, and team selections. This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(match.id);
+    setError('');
+    try {
+      await deleteMatch(match.id);
+      setMatches(current => current.filter(item => item.id !== match.id));
+    } catch (e) {
+      setError(`Could not delete match: ${e.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <Shell>
@@ -393,11 +412,23 @@ function AdminPage() {
                   <td>{m.overs_limit}</td>
                   <td><Status status={m.status} /></td>
                   <td>
-                    <Link className="table-link"
-                      to={m.status === 'live' ? `/admin/scoring/${m.id}` : `/live/${m.id}`}>
-                      {m.status === 'live' ? 'Open scorer' : 'View match'}
-                      <ArrowRight size={14} />
-                    </Link>
+                    <div className="admin-match-actions">
+                      <Link className="table-link"
+                        to={m.status === 'live' ? `/admin/scoring/${m.id}` : `/live/${m.id}`}>
+                        {m.status === 'live' ? 'Open scorer' : 'View match'}
+                        <ArrowRight size={14} />
+                      </Link>
+                      <button
+                        type="button"
+                        className="button button-danger small"
+                        onClick={() => handleDeleteMatch(m)}
+                        disabled={deletingId === m.id}
+                        aria-label={`Delete ${m.team_a_name} vs ${m.team_b_name}`}
+                      >
+                        <Trash2 size={14} />
+                        {deletingId === m.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1344,51 +1375,98 @@ function ScoringPage() {
   );
 }
 
-// PLAYER PERFORMANCE TABLE
-function TeamScorecard({ title, stats }) {
+// PLAYER PERFORMANCE CARDS
+function TeamScorecard({ title, battingStats, bowlingStats }) {
   return (
-    <div className="panel public-card performance-card">
-      <div className="panel-title">
-        <div>
-          <h2>{title}</h2>
-          <p>Individual player performance</p>
+    <div className="team-performance-section">
+      <div className="panel public-card performance-card">
+        <div className="panel-title">
+          <div>
+            <h2>{title} — Batting</h2>
+            <p>Batting scorecard and dismissal details</p>
+          </div>
+          <Users />
         </div>
-        <Users />
+
+        <div className="table-wrap">
+          <table className="performance-table">
+            <thead>
+              <tr>
+                <th>Batter</th>
+                <th>Dismissal</th>
+                <th>Runs</th>
+                <th>Balls</th>
+                <th>4s</th>
+                <th>6s</th>
+                <th>Strike rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {battingStats.map(player => (
+                <tr key={player.id}>
+                  <td><b>{player.name}</b></td>
+                  <td>{player.dismissal || (player.batted ? 'Not out' : 'Did not bat')}</td>
+                  <td><strong>{player.batted ? player.runs : '—'}</strong></td>
+                  <td>{player.batted ? player.balls : '—'}</td>
+                  <td>{player.batted ? player.fours : '—'}</td>
+                  <td>{player.batted ? player.sixes : '—'}</td>
+                  <td>
+                    {player.batted
+                      ? player.balls > 0
+                        ? ((player.runs / player.balls) * 100).toFixed(2)
+                        : '0.00'
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="table-wrap">
-        <table className="performance-table">
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th>Runs</th>
-              <th>Balls</th>
-              <th>4s</th>
-              <th>6s</th>
-              <th>Overs</th>
-              <th>Runs conceded</th>
-              <th>Wickets</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stats.map(player => (
-              <tr key={player.id}>
-                <td><b>{player.name}</b></td>
-                <td><strong>{player.batted ? player.runs : '—'}</strong></td>
-                <td>{player.batted ? player.balls : '—'}</td>
-                <td>{player.batted ? player.fours : '—'}</td>
-                <td>{player.batted ? player.sixes : '—'}</td>
-                <td>
-                  {player.bowled
-                    ? `${Math.floor(player.bowlingBalls / 6)}.${player.bowlingBalls % 6}`
-                    : '—'}
-                </td>
-                <td>{player.bowled ? player.bowlingRuns : '—'}</td>
-                <td>{player.bowled ? player.wickets : '—'}</td>
+      <div className="panel public-card performance-card">
+        <div className="panel-title">
+          <div>
+            <h2>{title} — Bowling</h2>
+            <p>Bowling figures and economy rate</p>
+          </div>
+          <Activity />
+        </div>
+
+        <div className="table-wrap">
+          <table className="performance-table">
+            <thead>
+              <tr>
+                <th>Bowler</th>
+                <th>Overs</th>
+                <th>Runs conceded</th>
+                <th>Wickets</th>
+                <th>Economy</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {bowlingStats.map(player => (
+                <tr key={player.id}>
+                  <td><b>{player.name}</b></td>
+                  <td>
+                    {player.bowled
+                      ? `${Math.floor(player.bowlingBalls / 6)}.${player.bowlingBalls % 6}`
+                      : '—'}
+                  </td>
+                  <td>{player.bowled ? player.bowlingRuns : '—'}</td>
+                  <td><strong>{player.bowled ? player.wickets : '—'}</strong></td>
+                  <td>
+                    {player.bowled
+                      ? player.bowlingBalls > 0
+                        ? (player.bowlingRuns / (player.bowlingBalls / 6)).toFixed(2)
+                        : '0.00'
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1489,54 +1567,92 @@ function LivePage() {
   const chaseComplete = isChasing && runsRequired === 0;
   const chaseLost = isChasing && ballsRemaining === 0 && runsRequired > 0;
 
-  // TEAM-WISE PLAYER PERFORMANCE
+  // TEAM-WISE BATTING AND BOWLING PERFORMANCE
   function getTeamPerformance(team) {
-    return roster
-      .filter(p => p.team === team)
-      .map(player => {
-        const playerId = player.player_id;
+    const teamPlayers = roster.filter(p => p.team === team);
 
-        const stats = {
-          id: playerId,
-          name: player.players?.name || 'Unknown',
-          runs: 0,
-          balls: 0,
-          fours: 0,
-          sixes: 0,
-          wickets: 0,
-          bowlingRuns: 0,
-          bowlingBalls: 0,
-          batted: false,
-          bowled: false
-        };
+    const battingStats = teamPlayers.map(player => {
+      const playerId = player.player_id;
+      const stats = {
+        id: playerId,
+        name: player.players?.name || 'Unknown',
+        runs: 0,
+        balls: 0,
+        fours: 0,
+        sixes: 0,
+        batted: false,
+        dismissal: ''
+      };
 
-        inns.forEach(inn => {
-          const calc = calculateInnings(inn.deliveries || []);
+      inns.forEach(inn => {
+        if (inn.batting_team !== team) return;
 
-          if (inn.batting_team === team) {
-            const batting = calc.batters?.[playerId];
+        const deliveries = inn.deliveries || [];
+        const calc = calculateInnings(deliveries);
+        const batting = calc.batters?.[playerId];
 
-            if (batting) {
-              stats.batted = true;
-              stats.runs += batting.runs || 0;
-              stats.balls += batting.balls || 0;
-              stats.fours += batting.fours || 0;
-              stats.sixes += batting.sixes || 0;
-            }
-          } else {
-            const bowling = calc.bowlers?.[playerId];
+        if (batting) {
+          stats.batted = true;
+          stats.runs += batting.runs || 0;
+          stats.balls += batting.balls || 0;
+          stats.fours += batting.fours || 0;
+          stats.sixes += batting.sixes || 0;
+        }
 
-            if (bowling) {
-              stats.bowled = true;
-              stats.wickets += bowling.wickets || 0;
-              stats.bowlingRuns += bowling.runs || 0;
-              stats.bowlingBalls += bowling.balls || 0;
-            }
-          }
-        });
+        const wicket = deliveries.find(delivery =>
+          delivery.dismissed_player_id === playerId && delivery.wicket_type
+        );
 
-        return stats;
+        if (wicket) {
+          const bowlerName = names[wicket.bowler_id] || 'Unknown bowler';
+          const dismissalDescriptions = {
+            bowled: `b ${bowlerName}`,
+            caught: `c (fielder not recorded) b ${bowlerName}`,
+            lbw: `lbw b ${bowlerName}`,
+            stumped: `st ${bowlerName}`,
+            run_out: 'run out',
+            hit_wicket: `hit wicket b ${bowlerName}`,
+            retired_hurt: 'retired hurt',
+            obstructing_the_field: 'obstructing the field'
+          };
+
+          stats.dismissal = dismissalDescriptions[wicket.wicket_type] ||
+            wicket.wicket_type.replaceAll('_', ' ');
+        }
       });
+
+      return stats;
+    });
+
+    const bowlingStats = teamPlayers.map(player => {
+      const playerId = player.player_id;
+      const stats = {
+        id: playerId,
+        name: player.players?.name || 'Unknown',
+        wickets: 0,
+        bowlingRuns: 0,
+        bowlingBalls: 0,
+        bowled: false
+      };
+
+      inns.forEach(inn => {
+        if (inn.batting_team === team) return;
+
+        const calc = calculateInnings(inn.deliveries || []);
+        const bowling = calc.bowlers?.[playerId];
+
+        if (bowling) {
+          stats.bowled = true;
+          stats.wickets += bowling.wickets || 0;
+          stats.bowlingRuns += bowling.runs || 0;
+          stats.bowlingBalls += bowling.balls || 0;
+        }
+      });
+
+      return stats;
+    });
+
+    return { battingStats, bowlingStats };
   }
 
   const teamAStats = getTeamPerformance('A');
@@ -1666,8 +1782,16 @@ function LivePage() {
           </div>
         </div>
 
-        <TeamScorecard title={m.team_a_name} stats={teamAStats} />
-        <TeamScorecard title={m.team_b_name} stats={teamBStats} />
+        <TeamScorecard
+          title={m.team_a_name}
+          battingStats={teamAStats.battingStats}
+          bowlingStats={teamAStats.bowlingStats}
+        />
+        <TeamScorecard
+          title={m.team_b_name}
+          battingStats={teamBStats.battingStats}
+          bowlingStats={teamBStats.bowlingStats}
+        />
       </section>
     </Shell>
   );
