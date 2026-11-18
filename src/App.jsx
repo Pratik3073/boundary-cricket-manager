@@ -878,6 +878,7 @@ function ScoringPage() {
   const [busy, setBusy] = useState(false);
   const [newBatter, setNewBatter] = useState('');
   const [newBowler, setNewBowler] = useState('');
+  const [newKeeper, setNewKeeper] = useState('');
   const [wicketOpen, setWicketOpen] = useState(false);
   const [wicketType, setWicketType] = useState('bowled');
   const [dismissed, setDismissed] = useState('striker');
@@ -918,6 +919,7 @@ function ScoringPage() {
   const striker = innings.striker_id;
   const non = innings.non_striker_id;
   const bowler = innings.current_bowler_id;
+  const wicketkeeper = innings.wicketkeeper_id;
 
   const playerName = playerId =>
     roster.find(p => p.player_id === playerId)?.players?.name || '—';
@@ -1039,6 +1041,28 @@ function ScoringPage() {
       setNewBowler('');
       await load();
       setNotice('Next bowler updated successfully');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeWicketkeeper() {
+    if (!newKeeper || busy || newKeeper === wicketkeeper) return;
+
+    setBusy(true);
+    setError('');
+    try {
+      const { error: updateError } = await supabase
+        .from('innings')
+        .update({ wicketkeeper_id: newKeeper })
+        .eq('id', innings.id);
+
+      if (updateError) throw updateError;
+      setNewKeeper('');
+      await load();
+      setNotice('Wicketkeeper updated successfully');
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1205,6 +1229,7 @@ function ScoringPage() {
               <div><small>STRIKER</small><b>{playerName(striker)} <i>★</i></b></div>
               <div><small>NON-STRIKER</small><b>{playerName(non)}</b></div>
               <div><small>BOWLER</small><b>{playerName(bowler)}</b></div>
+              <div><small>WICKETKEEPER</small><b>{playerName(wicketkeeper)}</b></div>
             </div>
           </div>
 
@@ -1312,6 +1337,28 @@ function ScoringPage() {
                   </button>
                   <button className="button button-ghost" onClick={() => setWicketOpen(false)}>Cancel</button>
                 </div>
+              </div>
+            )}
+
+            {!inningsDone && (
+              <div className="inline-editor">
+                <b>WICKETKEEPER</b>
+                <p className="muted">You can change the wicketkeeper at any time during the innings.</p>
+                <label>Current wicketkeeper
+                  <select value={newKeeper} onChange={e => setNewKeeper(e.target.value)}>
+                    <option value="">{wicketkeeper ? `Current: ${playerName(wicketkeeper)}` : 'Select wicketkeeper'}</option>
+                    {bowling.map(p => (
+                      <option key={p.player_id} value={p.player_id}>
+                        {p.players?.name || 'Unknown player'}{p.player_id === wicketkeeper ? ' (current)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="button button-dark"
+                  disabled={busy || !newKeeper || newKeeper === wicketkeeper}
+                  onClick={changeWicketkeeper}>
+                  Update wicketkeeper
+                </button>
               </div>
             )}
 
@@ -1778,6 +1825,7 @@ function LivePage() {
             <div><small>STRIKER</small><b>{names[current.striker_id] || '—'}</b></div>
             <div><small>NON-STRIKER</small><b>{names[current.non_striker_id] || '—'}</b></div>
             <div><small>BOWLER</small><b>{names[current.current_bowler_id] || '—'}</b></div>
+            <div><small>WICKETKEEPER</small><b>{names[current.wicketkeeper_id] || '—'}</b></div>
           </div>
         )}
       </div>
