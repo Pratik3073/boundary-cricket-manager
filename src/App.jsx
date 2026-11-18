@@ -1578,7 +1578,42 @@ function LivePage() {
     : 0;
 
   const chaseComplete = isChasing && runsRequired === 0;
-  const chaseLost = isChasing && ballsRemaining === 0 && runsRequired > 0;
+
+  // The second innings ends when the target is reached, all overs are used,
+  // all 10 wickets are lost, or the match is marked completed by the scorer.
+  const chaseLost =
+    isChasing &&
+    !chaseComplete &&
+    (ballsRemaining === 0 || currentCalc.wickets >= 10);
+
+  const firstTeamName = first?.batting_team === 'A'
+    ? m.team_a_name
+    : m.team_b_name;
+
+  const secondTeamName = current?.batting_team === 'A'
+    ? m.team_a_name
+    : m.team_b_name;
+
+  const secondInningsFinished =
+    isChasing &&
+    (current?.status === 'completed' ||
+      m.status === 'completed' ||
+      chaseComplete ||
+      chaseLost);
+
+  let matchResult = '';
+
+  if (secondInningsFinished) {
+    if (currentCalc.runs > firstCalc.runs) {
+      const wicketsRemaining = Math.max(0, 10 - currentCalc.wickets);
+      matchResult = `${secondTeamName} won by ${wicketsRemaining} wickets`;
+    } else if (currentCalc.runs < firstCalc.runs) {
+      const runMargin = firstCalc.runs - currentCalc.runs;
+      matchResult = `${firstTeamName} won by ${runMargin} runs`;
+    } else {
+      matchResult = 'Match tied';
+    }
+  }
 
   // TEAM-WISE BATTING AND BOWLING PERFORMANCE
   function getTeamPerformance(team) {
@@ -1728,19 +1763,14 @@ function LivePage() {
             <div><small>REQUIRED RUN RATE</small><strong>{requiredRunRate.toFixed(2)}</strong></div>
           </div>
 
-          {chaseComplete && (
-            <div className="chase-message success">
-              <Trophy size={20} /> Target achieved! The chasing team has won.
+          {secondInningsFinished && (
+            <div className={`chase-message ${matchResult.includes('won') ? 'success' : ''}`}>
+              <Trophy size={20} />
+              <strong>{matchResult}</strong>
             </div>
           )}
 
-          {chaseLost && (
-            <div className="chase-message">
-              <Trophy size={20} /> The target was not achieved.
-            </div>
-          )}
-
-          {!chaseComplete && !chaseLost && (
+          {!secondInningsFinished && (
             <p className="chase-footer">
               {runsRequired} runs needed from {ballsRemaining} balls.
             </p>
