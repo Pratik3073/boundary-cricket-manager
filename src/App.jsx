@@ -968,7 +968,7 @@ function ScoringPage() {
         is_legal: !['wide', 'no_ball'].includes(extra),
         wicket_type: wicket,
         dismissed_player_id: offender,
-        fielder_id: wicket === 'caught' ? (fielder || null) : null
+        fielder_id: ['caught', 'run_out'].includes(wicket) ? (fielder || null) : null
       };
 
       const legal = calc.legalBalls + (delivery.is_legal ? 1 : 0);
@@ -1272,15 +1272,19 @@ function ScoringPage() {
                   </label>
                 </div>
                 <label>
-                  Caught by
+                  {wicketType === 'caught' ? 'Caught by' : 'Run out by'}
                   <select
                     value={fielderId}
-                    disabled={wicketType !== 'caught'}
+                    disabled={!['caught', 'run_out'].includes(wicketType)}
                     onChange={e => setFielderId(e.target.value)}
-                    required={wicketType === 'caught'}
+                    required={['caught', 'run_out'].includes(wicketType)}
                   >
                     <option value="">
-                      {wicketType === 'caught' ? 'Select fielder' : 'Choose Caught dismissal first'}
+                      {wicketType === 'caught'
+                        ? 'Select fielder who took the catch'
+                        : wicketType === 'run_out'
+                          ? 'Select fielder who effected the run out'
+                          : 'Select Caught or Run out dismissal first'}
                     </option>
                     {bowling.map(p => (
                       <option key={p.player_id} value={p.player_id}>
@@ -1291,12 +1295,14 @@ function ScoringPage() {
                   <small>
                     {wicketType === 'caught'
                       ? 'Select the fielder who took the catch.'
-                      : 'This field becomes active when dismissal is Caught.'}
+                      : wicketType === 'run_out'
+                        ? 'Select the fielder who broke the stumps or completed the run out.'
+                        : 'This field becomes active for Caught and Run out dismissals.'}
                   </small>
                 </label>
                 <div className="button-row">
                   <button className="button button-danger"
-                    disabled={wicketType === 'caught' && !fielderId}
+                    disabled={['caught', 'run_out'].includes(wicketType) && !fielderId}
                     onClick={() => addBall(
                       0,
                       null,
@@ -1691,7 +1697,7 @@ function LivePage() {
             caught: `c ${names[wicket.fielder_id] || 'fielder not recorded'} b ${bowlerName}`,
             lbw: `lbw b ${bowlerName}`,
             stumped: `st ${bowlerName}`,
-            run_out: 'run out',
+            run_out: `run out (${names[wicket.fielder_id] || 'fielder not recorded'})`,
             hit_wicket: `hit wicket b ${bowlerName}`,
             retired_hurt: 'retired hurt',
             obstructing_the_field: 'obstructing the field'
