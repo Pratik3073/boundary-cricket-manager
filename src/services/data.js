@@ -1,4 +1,3 @@
-
 import { requireSupabase } from './supabase';
 
 export async function getPlayers() {

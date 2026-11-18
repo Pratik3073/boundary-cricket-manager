@@ -1331,7 +1331,7 @@ function ScoringPage() {
                       0,
                       wicketType,
                       dismissed === 'striker' ? striker : non,
-                      wicketType === 'caught' ? fielderId : null
+                      ['caught', 'run_out'].includes(wicketType) ? fielderId : null
                     )}>
                     Confirm wicket
                   </button>
