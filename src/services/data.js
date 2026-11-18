@@ -1,3 +1,4 @@
+
 import { requireSupabase } from './supabase';
 
 export async function getPlayers() {
@@ -88,11 +89,15 @@ export async function getMatchBundle(matchId) {
 
   const [matchRes, rosterRes, inningsRes] = await Promise.all([
     db.from('matches').select('*').eq('id', matchId).single(),
+
     db.from('match_players').select('*, players(*)')
-      .eq('match_id', matchId).order('batting_order'),
+      .eq('match_id', matchId)
+      .order('batting_order'),
+
     db.from('innings')
       .select('*, deliveries(*, striker:players!deliveries_striker_id_fkey(id,name), non_striker:players!deliveries_non_striker_id_fkey(id,name), bowler:players!deliveries_bowler_id_fkey(id,name))')
-      .eq('match_id', matchId).order('innings_number')
+      .eq('match_id', matchId)
+      .order('innings_number')
   ]);
 
   if (matchRes.error) throw matchRes.error;
@@ -106,9 +111,18 @@ export async function getMatchBundle(matchId) {
   };
 }
 
+// START INNINGS
+// Wicketkeeper is now saved when the innings is created.
 export async function startInnings(
-  matchId, number, battingTeam, striker, nonStriker,
-  bowler, tossWinner, tossDecision
+  matchId,
+  number,
+  battingTeam,
+  striker,
+  nonStriker,
+  bowler,
+  wicketkeeper,
+  tossWinner,
+  tossDecision
 ) {
   const db = requireSupabase();
 
@@ -130,6 +144,7 @@ export async function startInnings(
       striker_id: striker,
       non_striker_id: nonStriker,
       current_bowler_id: bowler,
+      wicketkeeper_id: wicketkeeper,
       status: 'live'
     })
     .select()
@@ -139,11 +154,15 @@ export async function startInnings(
   return data;
 }
 
+// RECORD DELIVERY
 export async function recordDelivery(innings, delivery, nextState) {
   const db = requireSupabase();
 
   const { error } = await db.from('deliveries')
-    .insert({ innings_id: innings.id, ...delivery });
+    .insert({
+      innings_id: innings.id,
+      ...delivery
+    });
 
   if (error) throw error;
 
@@ -154,6 +173,7 @@ export async function recordDelivery(innings, delivery, nextState) {
   if (updateError) throw updateError;
 }
 
+// UNDO DELIVERY
 export async function undoDelivery(innings, previousState) {
   const db = requireSupabase();
 
@@ -179,6 +199,7 @@ export async function undoDelivery(innings, previousState) {
   if (updateError) throw updateError;
 }
 
+// FINISH MATCH
 export async function finishMatch(matchId) {
   const { error } = await requireSupabase()
     .from('matches')
@@ -188,6 +209,7 @@ export async function finishMatch(matchId) {
   if (error) throw error;
 }
 
+// DELETE MATCH
 export async function deleteMatch(matchId) {
   const { error } = await requireSupabase()
     .from('matches')
@@ -197,13 +219,20 @@ export async function deleteMatch(matchId) {
   if (error) throw error;
 }
 
+// PLAYER RECORDS
 export async function getPlayerRecords() {
   const db = requireSupabase();
 
   const [playersRes, appearancesRes, inningsRes] = await Promise.all([
-    db.from('players').select('id, name, created_at').order('name'),
-    db.from('match_players').select('player_id, match_id'),
-    db.from('innings').select('id, match_id, batting_team, deliveries(*)')
+    db.from('players')
+      .select('id, name, created_at')
+      .order('name'),
+
+    db.from('match_players')
+      .select('player_id, match_id'),
+
+    db.from('innings')
+      .select('id, match_id, batting_team, deliveries(*)')
   ]);
 
   if (playersRes.error) throw playersRes.error;
@@ -244,22 +273,36 @@ export async function getPlayerRecords() {
 
       if (batter) {
         batter.runs += batterRuns;
-        if (delivery.extra_type !== 'wide') batter.ballsFaced += 1;
+
+        if (delivery.extra_type !== 'wide') {
+          batter.ballsFaced += 1;
+        }
+
         if (batterRuns === 4) batter.fours += 1;
         if (batterRuns === 6) batter.sixes += 1;
       }
 
       const dismissed = stats.get(delivery.dismissed_player_id);
-      if (dismissed && delivery.wicket_type && delivery.wicket_type !== 'retired_hurt') {
+
+      if (
+        dismissed &&
+        delivery.wicket_type &&
+        delivery.wicket_type !== 'retired_hurt'
+      ) {
         dismissed.outs += 1;
       }
 
       if (bowler) {
         if (delivery.is_legal) bowler.bowlingBalls += 1;
+
         if (!['bye', 'leg_bye'].includes(delivery.extra_type)) {
           bowler.bowlingRuns += totalRuns;
         }
-        if (delivery.wicket_type && !['run_out', 'retired_hurt'].includes(delivery.wicket_type)) {
+
+        if (
+          delivery.wicket_type &&
+          !['run_out', 'retired_hurt'].includes(delivery.wicket_type)
+        ) {
           bowler.wickets += 1;
         }
       }
@@ -281,22 +324,29 @@ export async function getPlayerRecords() {
 
     for (const [playerId, score] of inningsRuns) {
       const row = stats.get(playerId);
-      if (row) row.highestScore = Math.max(row.highestScore, score);
+
+      if (row) {
+        row.highestScore = Math.max(row.highestScore, score);
+      }
     }
   }
 
   return [...stats.values()].map(row => ({
     ...row,
     matches: row.matches.size,
+
     battingAverage: row.outs
       ? (row.runs / row.outs).toFixed(2)
       : row.runs ? '—' : '0.00',
+
     strikeRate: row.ballsFaced
       ? ((row.runs / row.ballsFaced) * 100).toFixed(2)
       : '0.00',
+
     economy: row.bowlingBalls
       ? (row.bowlingRuns / (row.bowlingBalls / 6)).toFixed(2)
       : '0.00',
+
     bowlingOvers: `${Math.floor(row.bowlingBalls / 6)}.${row.bowlingBalls % 6}`
   }));
 }

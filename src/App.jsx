@@ -767,6 +767,7 @@ function TossPage() {
   const [striker, setStriker] = useState('');
   const [non, setNon] = useState('');
   const [bowler, setBowler] = useState('');
+  const [keeper, setKeeper] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -794,7 +795,7 @@ function TossPage() {
     setError('');
 
     try {
-      await startInnings(id, 1, batting, striker, non, bowler, winner, decision);
+      await startInnings(id, 1, batting, striker, non, bowler, keeper, winner, decision);
       navigate(`/admin/scoring/${id}`);
     } catch (e) {
       setError(e.message);
@@ -852,9 +853,22 @@ function TossPage() {
         </div>
 
         <label>Opening bowler
-          <select required value={bowler} onChange={e => setBowler(e.target.value)}>
+          <select required value={bowler} onChange={e => {
+            const selectedBowler = e.target.value;
+            setBowler(selectedBowler);
+            if (keeper === selectedBowler) setKeeper('');
+          }}>
             <option value="">Select bowler</option>
             {bowlPlayers.map(p => (
+              <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>Wicketkeeper
+          <select required value={keeper} onChange={e => setKeeper(e.target.value)}>
+            <option value="">Select wicketkeeper</option>
+            {bowlPlayers.filter(p => p.player_id !== bowler).map(p => (
               <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
             ))}
           </select>
@@ -890,6 +904,7 @@ function ScoringPage() {
   const [secondStriker, setSecondStriker] = useState('');
   const [secondNon, setSecondNon] = useState('');
   const [secondBowler, setSecondBowler] = useState('');
+  const [secondKeeper, setSecondKeeper] = useState('');
 
   async function load() {
     try {
@@ -971,7 +986,6 @@ function ScoringPage() {
         wicket_type: wicket,
         dismissed_player_id: offender,
         fielder_id: ['caught', 'run_out'].includes(wicket) ? (fielder || null) : null,
-        // Save the wicketkeeper at the exact time of a stumping.
         wicketkeeper_id: wicket === 'stumped' ? (wicketkeeper || null) : null
       };
 
@@ -1055,18 +1069,27 @@ function ScoringPage() {
 
     setBusy(true);
     setError('');
+    setNotice('');
+
     try {
-      const { error: updateError } = await supabase
+      const { data, error: updateError } = await supabase
         .from('innings')
         .update({ wicketkeeper_id: newKeeper })
-        .eq('id', innings.id);
+        .eq('id', innings.id)
+        .select('id, wicketkeeper_id')
+        .single();
 
       if (updateError) throw updateError;
+
+      if (!data || data.wicketkeeper_id !== newKeeper) {
+        throw new Error('Wicketkeeper update was not confirmed.');
+      }
+
       setNewKeeper('');
       await load();
-      setNotice('Wicketkeeper updated successfully');
+      setNotice(`Wicketkeeper changed to ${playerName(newKeeper)}`);
     } catch (e) {
-      setError(e.message);
+      setError(`Wicketkeeper update failed: ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -1122,7 +1145,7 @@ function ScoringPage() {
     try {
       await startInnings(
         id, 2, opponentTeam, secondStriker, secondNon,
-        secondBowler, match.toss_winner, match.toss_decision
+        secondBowler, secondKeeper, match.toss_winner, match.toss_decision
       );
       await load();
     } catch (e) {
@@ -1166,9 +1189,22 @@ function ScoringPage() {
           </div>
 
           <label>Opening bowler
-            <select required value={secondBowler} onChange={e => setSecondBowler(e.target.value)}>
+            <select required value={secondBowler} onChange={e => {
+              const selectedBowler = e.target.value;
+              setSecondBowler(selectedBowler);
+              if (secondKeeper === selectedBowler) setSecondKeeper('');
+            }}>
               <option value="">Select bowler</option>
               {secondBowlers.map(p => (
+                <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label>Wicketkeeper
+            <select required value={secondKeeper} onChange={e => setSecondKeeper(e.target.value)}>
+              <option value="">Select wicketkeeper</option>
+              {secondBowlers.filter(p => p.player_id !== secondBowler).map(p => (
                 <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
               ))}
             </select>
@@ -1349,7 +1385,7 @@ function ScoringPage() {
                 <label>Current wicketkeeper
                   <select value={newKeeper} onChange={e => setNewKeeper(e.target.value)}>
                     <option value="">{wicketkeeper ? `Current: ${playerName(wicketkeeper)}` : 'Select wicketkeeper'}</option>
-                    {bowling.map(p => (
+                    {bowling.filter(p => p.player_id !== bowler).map(p => (
                       <option key={p.player_id} value={p.player_id}>
                         {p.players?.name || 'Unknown player'}{p.player_id === wicketkeeper ? ' (current)' : ''}
                       </option>
@@ -1623,6 +1659,12 @@ function LivePage() {
   const roster = bundle.roster || [];
 
   const current = inns.find(i => i.status === 'live') || inns[inns.length - 1];
+  // Use the actual number of players selected for the chasing team.
+  // A team can lose at most one fewer wicket than its player count.
+  const battingTeamPlayers = roster.filter(
+    p => p.team === current?.batting_team
+  );
+  const maxWickets = Math.max(0, battingTeamPlayers.length - 1);
   const first = inns.find(i => i.innings_number === 1);
 
   const currentCalc = current
@@ -1665,11 +1707,11 @@ function LivePage() {
   const chaseComplete = isChasing && runsRequired === 0;
 
   // The second innings ends when the target is reached, all overs are used,
-  // all 10 wickets are lost, or the match is marked completed by the scorer.
+  // all available wickets are lost, or the scorer marks the match completed.
   const chaseLost =
     isChasing &&
     !chaseComplete &&
-    (ballsRemaining === 0 || currentCalc.wickets >= 10);
+    (ballsRemaining === 0 || currentCalc.wickets >= maxWickets);
 
   const firstTeamName = first?.batting_team === 'A'
     ? m.team_a_name
@@ -1690,7 +1732,7 @@ function LivePage() {
 
   if (secondInningsFinished) {
     if (currentCalc.runs > firstCalc.runs) {
-      const wicketsRemaining = Math.max(0, 10 - currentCalc.wickets);
+      const wicketsRemaining = Math.max(0, maxWickets - currentCalc.wickets);
       matchResult = `${secondTeamName} won by ${wicketsRemaining} wickets`;
     } else if (currentCalc.runs < firstCalc.runs) {
       const runMargin = firstCalc.runs - currentCalc.runs;
