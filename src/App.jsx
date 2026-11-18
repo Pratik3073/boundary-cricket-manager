@@ -1271,35 +1271,32 @@ function ScoringPage() {
                     </select>
                   </label>
                 </div>
-                <label>
-                  {wicketType === 'caught' ? 'Caught by' : 'Run out by'}
-                  <select
-                    value={fielderId}
-                    disabled={!['caught', 'run_out'].includes(wicketType)}
-                    onChange={e => setFielderId(e.target.value)}
-                    required={['caught', 'run_out'].includes(wicketType)}
-                  >
-                    <option value="">
-                      {wicketType === 'caught'
-                        ? 'Select fielder who took the catch'
-                        : wicketType === 'run_out'
-                          ? 'Select fielder who effected the run out'
-                          : 'Select Caught or Run out dismissal first'}
-                    </option>
-                    {bowling.map(p => (
-                      <option key={p.player_id} value={p.player_id}>
-                        {p.players?.name || 'Unknown player'}
+                {['caught', 'run_out'].includes(wicketType) && (
+                  <label>
+                    {wicketType === 'caught' ? 'Caught by' : 'Run out by'}
+                    <select
+                      value={fielderId}
+                      onChange={e => setFielderId(e.target.value)}
+                      required
+                    >
+                      <option value="">
+                        {wicketType === 'caught'
+                          ? 'Select fielder who took the catch'
+                          : 'Select fielder who effected the run out'}
                       </option>
-                    ))}
-                  </select>
-                  <small>
-                    {wicketType === 'caught'
-                      ? 'Select the fielder who took the catch.'
-                      : wicketType === 'run_out'
-                        ? 'Select the fielder who broke the stumps or completed the run out.'
-                        : 'This field becomes active for Caught and Run out dismissals.'}
-                  </small>
-                </label>
+                      {bowling.map(p => (
+                        <option key={p.player_id} value={p.player_id}>
+                          {p.players?.name || 'Unknown player'}
+                        </option>
+                      ))}
+                    </select>
+                    <small>
+                      {wicketType === 'caught'
+                        ? 'Select the fielder who took the catch.'
+                        : 'Select the fielder who broke the stumps or completed the run out.'}
+                    </small>
+                  </label>
+                )}
                 <div className="button-row">
                   <button className="button button-danger"
                     disabled={['caught', 'run_out'].includes(wicketType) && !fielderId}
