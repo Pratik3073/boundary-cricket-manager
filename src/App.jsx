@@ -1258,7 +1258,7 @@ function ScoringPage() {
                 <b>RECORD WICKET</b>
                 <div className="two-col">
                   <label>Dismissal
-                    <select value={wicketType} onChange={e => setWicketType(e.target.value)}>
+                    <select value={wicketType} onChange={e => { setWicketType(e.target.value); setFielderId(""); }}>
                       {['bowled', 'caught', 'lbw', 'run_out', 'stumped', 'hit_wicket', 'retired_hurt'].map(w => (
                         <option key={w} value={w}>{w.replace('_', ' ')}</option>
                       ))}
@@ -1271,18 +1271,29 @@ function ScoringPage() {
                     </select>
                   </label>
                 </div>
-                {wicketType === 'caught' && (
-                  <label>Caught by
-                    <select value={fielderId} onChange={e => setFielderId(e.target.value)}>
-                      <option value="">Select fielder</option>
-                      {bowling.map(p => (
-                        <option key={p.player_id} value={p.player_id}>
-                          {p.players?.name || 'Unknown player'}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+                <label>
+                  Caught by
+                  <select
+                    value={fielderId}
+                    disabled={wicketType !== 'caught'}
+                    onChange={e => setFielderId(e.target.value)}
+                    required={wicketType === 'caught'}
+                  >
+                    <option value="">
+                      {wicketType === 'caught' ? 'Select fielder' : 'Choose Caught dismissal first'}
+                    </option>
+                    {bowling.map(p => (
+                      <option key={p.player_id} value={p.player_id}>
+                        {p.players?.name || 'Unknown player'}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    {wicketType === 'caught'
+                      ? 'Select the fielder who took the catch.'
+                      : 'This field becomes active when dismissal is Caught.'}
+                  </small>
+                </label>
                 <div className="button-row">
                   <button className="button button-danger"
                     disabled={wicketType === 'caught' && !fielderId}
