@@ -971,8 +971,7 @@ function ScoringPage() {
         wicket_type: wicket,
         dismissed_player_id: offender,
         fielder_id: ['caught', 'run_out'].includes(wicket) ? (fielder || null) : null,
-        // Save the keeper on this specific stumping delivery so later keeper
-        // changes do not rewrite the historical dismissal in the scorecard.
+        // Save the wicketkeeper at the exact time of a stumping.
         wicketkeeper_id: wicket === 'stumped' ? (wicketkeeper || null) : null
       };
 
