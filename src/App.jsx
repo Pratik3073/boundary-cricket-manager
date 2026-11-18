@@ -1621,6 +1621,12 @@ function LivePage() {
   const roster = bundle.roster || [];
 
   const current = inns.find(i => i.status === 'live') || inns[inns.length - 1];
+  // Use the actual number of players selected for the chasing team.
+  // A team can lose at most one fewer wicket than its player count.
+  const battingTeamPlayers = roster.filter(
+    p => p.team === current?.batting_team
+  );
+  const maxWickets = Math.max(0, battingTeamPlayers.length - 1);
   const first = inns.find(i => i.innings_number === 1);
 
   const currentCalc = current
@@ -1663,11 +1669,11 @@ function LivePage() {
   const chaseComplete = isChasing && runsRequired === 0;
 
   // The second innings ends when the target is reached, all overs are used,
-  // all 10 wickets are lost, or the match is marked completed by the scorer.
+  // all available wickets are lost, or the scorer marks the match completed.
   const chaseLost =
     isChasing &&
     !chaseComplete &&
-    (ballsRemaining === 0 || currentCalc.wickets >= 10);
+    (ballsRemaining === 0 || currentCalc.wickets >= maxWickets);
 
   const firstTeamName = first?.batting_team === 'A'
     ? m.team_a_name
@@ -1688,7 +1694,7 @@ function LivePage() {
 
   if (secondInningsFinished) {
     if (currentCalc.runs > firstCalc.runs) {
-      const wicketsRemaining = Math.max(0, 10 - currentCalc.wickets);
+      const wicketsRemaining = Math.max(0, maxWickets - currentCalc.wickets);
       matchResult = `${secondTeamName} won by ${wicketsRemaining} wickets`;
     } else if (currentCalc.runs < firstCalc.runs) {
       const runMargin = firstCalc.runs - currentCalc.runs;
