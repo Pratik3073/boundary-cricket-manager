@@ -970,7 +970,10 @@ function ScoringPage() {
         is_legal: !['wide', 'no_ball'].includes(extra),
         wicket_type: wicket,
         dismissed_player_id: offender,
-        fielder_id: ['caught', 'run_out'].includes(wicket) ? (fielder || null) : null
+        fielder_id: ['caught', 'run_out'].includes(wicket) ? (fielder || null) : null,
+        // Save the keeper on this specific stumping delivery so later keeper
+        // changes do not rewrite the historical dismissal in the scorecard.
+        wicketkeeper_id: wicket === 'stumped' ? (wicketkeeper || null) : null
       };
 
       const legal = calc.legalBalls + (delivery.is_legal ? 1 : 0);
@@ -1621,12 +1624,6 @@ function LivePage() {
   const roster = bundle.roster || [];
 
   const current = inns.find(i => i.status === 'live') || inns[inns.length - 1];
-  // Use the actual number of players selected for the chasing team.
-  // A team can lose at most one fewer wicket than its player count.
-  const battingTeamPlayers = roster.filter(
-    p => p.team === current?.batting_team
-  );
-  const maxWickets = Math.max(0, battingTeamPlayers.length - 1);
   const first = inns.find(i => i.innings_number === 1);
 
   const currentCalc = current
@@ -1669,11 +1666,11 @@ function LivePage() {
   const chaseComplete = isChasing && runsRequired === 0;
 
   // The second innings ends when the target is reached, all overs are used,
-  // all available wickets are lost, or the scorer marks the match completed.
+  // all 10 wickets are lost, or the match is marked completed by the scorer.
   const chaseLost =
     isChasing &&
     !chaseComplete &&
-    (ballsRemaining === 0 || currentCalc.wickets >= maxWickets);
+    (ballsRemaining === 0 || currentCalc.wickets >= 10);
 
   const firstTeamName = first?.batting_team === 'A'
     ? m.team_a_name
@@ -1694,7 +1691,7 @@ function LivePage() {
 
   if (secondInningsFinished) {
     if (currentCalc.runs > firstCalc.runs) {
-      const wicketsRemaining = Math.max(0, maxWickets - currentCalc.wickets);
+      const wicketsRemaining = Math.max(0, 10 - currentCalc.wickets);
       matchResult = `${secondTeamName} won by ${wicketsRemaining} wickets`;
     } else if (currentCalc.runs < firstCalc.runs) {
       const runMargin = firstCalc.runs - currentCalc.runs;
@@ -1746,7 +1743,7 @@ function LivePage() {
             bowled: `b ${bowlerName}`,
             caught: `c ${names[wicket.fielder_id] || 'fielder not recorded'} b ${bowlerName}`,
             lbw: `lbw b ${bowlerName}`,
-            stumped: `st ${bowlerName}`,
+            stumped: `st ${names[wicket.wicketkeeper_id || inn.wicketkeeper_id] || 'wicketkeeper not recorded'} b ${bowlerName}`,
             run_out: `run out (${names[wicket.fielder_id] || 'fielder not recorded'})`,
             hit_wicket: `hit wicket b ${bowlerName}`,
             retired_hurt: 'retired hurt',
