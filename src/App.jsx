@@ -6,13 +6,13 @@ import {
 import {
   Activity, ArrowLeft, ArrowRight, BarChart3, Check,
   CircleHelp, ClipboardList, LogOut, Plus, Radio,
-  RefreshCw, ShieldCheck, Trash2, Trophy, Users
+  RefreshCw, ShieldCheck, Trash2, Trophy, Users, Menu, X, Search
 } from 'lucide-react';
 
 import { isSupabaseConfigured, supabase } from './services/supabase';
 import {
   createMatch, deleteMatch, deletePlayer, finishMatch, getMatchBundle,
-  getMatches, getPlayers, recordDelivery, savePlayer,
+  getMatches, getPlayers, getPlayerRecords, recordDelivery, savePlayer,
   startInnings, undoDelivery
 } from './services/data';
 import { calculateInnings, getEndChange } from './utils/scoringEngine';
@@ -47,27 +47,40 @@ function useAuth() {
 function Shell({ children }) {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function signOut() {
     if (supabase) await supabase.auth.signOut();
+    setMenuOpen(false);
     navigate('/');
   }
+
+  function closeMenu() { setMenuOpen(false); }
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <Link to="/" className="brand">
+        <Link to="/" className="brand" onClick={closeMenu}>
           <span className="brand-mark"><Trophy size={19} /></span>
-          <span>
-            BOUNDARY
-            <span className="brand-sub">CRICKET MANAGER</span>
-          </span>
+          <span>BOUNDARY<span className="brand-sub">CRICKET MANAGER</span></span>
         </Link>
 
-        <nav>
-          <Link to="/">Home</Link>
-          <Link to="/matches">Matches</Link>
-          {session && <Link to="/admin">Admin</Link>}
+        <button
+          type="button"
+          className="mobile-menu-toggle"
+          aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(open => !open)}
+        >
+          {menuOpen ? <X size={23} /> : <Menu size={23} />}
+        </button>
+
+        <nav className={menuOpen ? 'main-nav is-open' : 'main-nav'}>
+          <Link to="/" onClick={closeMenu}>Home</Link>
+          <Link to="/matches" onClick={closeMenu}>Matches</Link>
+          <Link to="/players" onClick={closeMenu}>Players</Link>
+          {session && <Link to="/admin" onClick={closeMenu}>Admin</Link>}
+          {session && <button className="mobile-signout" onClick={signOut}><LogOut size={15} /> Sign out</button>}
         </nav>
 
         <div className="top-actions">
@@ -76,7 +89,7 @@ function Shell({ children }) {
               <LogOut size={15} /> Sign out
             </button>
           ) : (
-            <Link className="button button-dark small" to="/login">
+            <Link className="button button-dark small" to="/login" onClick={closeMenu}>
               Admin login
             </Link>
           )}
@@ -1797,6 +1810,75 @@ function LivePage() {
   );
 }
 
+// PUBLIC PLAYER RECORDS
+function PlayerRecordsPage() {
+  const [players, setPlayers] = useState([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getPlayerRecords()
+      .then(data => { if (active) setPlayers(data); })
+      .catch(e => { if (active) setError(e.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const filtered = players.filter(player =>
+    player.name.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  return (
+    <Shell>
+      <PageHeader
+        eyebrow="PLAYER DATABASE"
+        title="Player records"
+        subtitle="Career statistics calculated from the matches recorded in Boundary."
+      />
+
+      <div className="player-records-toolbar">
+        <div className="player-records-search">
+          <Search size={17} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search players by name" />
+        </div>
+        <span className="muted">{players.length} registered players</span>
+      </div>
+
+      <Notice>{error}</Notice>
+
+      {loading ? <div className="empty-state">Loading player records…</div> :
+        filtered.length ? (
+          <div className="player-records-grid">
+            {filtered.map(player => (
+              <article className="panel player-record-card" key={player.id}>
+                <div className="player-record-heading">
+                  <span className="player-record-avatar">{player.name.slice(0, 1).toUpperCase()}</span>
+                  <div><h2>{player.name}</h2><span>{player.matches} match appearances</span></div>
+                </div>
+                <div className="player-record-stats">
+                  <div><small>RUNS</small><strong>{player.runs}</strong></div>
+                  <div><small>WICKETS</small><strong>{player.wickets}</strong></div>
+                  <div><small>BEST</small><strong>{player.highestScore}</strong></div>
+                  <div><small>AVERAGE</small><strong>{player.battingAverage}</strong></div>
+                  <div><small>STRIKE RATE</small><strong>{player.strikeRate}</strong></div>
+                  <div><small>ECONOMY</small><strong>{player.economy}</strong></div>
+                </div>
+                <div className="player-record-footer">
+                  <span>{player.fours} fours · {player.sixes} sixes</span>
+                  <span>{player.ballsFaced} balls faced · {player.bowlingOvers} overs bowled</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state"><Users size={26} /><b>No player records found</b><span>{query ? 'Try another player name.' : 'Add players and record matches to build the player database.'}</span></div>
+        )}
+    </Shell>
+  );
+}
+
 // MATCHES
 function MatchesPage() {
   const [matches, setMatches] = useState([]);
@@ -1867,6 +1949,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/matches" element={<MatchesPage />} />
+      <Route path="/players" element={<PlayerRecordsPage />} />
       <Route path="/live/:id" element={<LivePage />} />
 
       <Route path="/login"
