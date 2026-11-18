@@ -881,6 +881,7 @@ function ScoringPage() {
   const [wicketOpen, setWicketOpen] = useState(false);
   const [wicketType, setWicketType] = useState('bowled');
   const [dismissed, setDismissed] = useState('striker');
+  const [fielderId, setFielderId] = useState('');
   const [extraOpen, setExtraOpen] = useState(false);
   const [extraType, setExtraType] = useState('wide');
   const [extraRuns, setExtraRuns] = useState(1);
@@ -950,7 +951,7 @@ function ScoringPage() {
   const secondBatters = roster.filter(p => p.team === opponentTeam);
   const secondBowlers = roster.filter(p => p.team === innings.batting_team);
 
-  async function addBall(runs = 0, extra = null, extras = 0, wicket = null, offender = null) {
+  async function addBall(runs = 0, extra = null, extras = 0, wicket = null, offender = null, fielder = null) {
     if (busy || inningsDone || overDone) return;
 
     setBusy(true);
@@ -966,7 +967,8 @@ function ScoringPage() {
         extra_runs: extras,
         is_legal: !['wide', 'no_ball'].includes(extra),
         wicket_type: wicket,
-        dismissed_player_id: offender
+        dismissed_player_id: offender,
+        fielder_id: wicket === 'caught' ? (fielder || null) : null
       };
 
       const legal = calc.legalBalls + (delivery.is_legal ? 1 : 0);
@@ -1269,9 +1271,29 @@ function ScoringPage() {
                     </select>
                   </label>
                 </div>
+                {wicketType === 'caught' && (
+                  <label>Caught by
+                    <select value={fielderId} onChange={e => setFielderId(e.target.value)}>
+                      <option value="">Select fielder</option>
+                      {bowling.map(p => (
+                        <option key={p.player_id} value={p.player_id}>
+                          {p.players?.name || 'Unknown player'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="button-row">
                   <button className="button button-danger"
-                    onClick={() => addBall(0, null, 0, wicketType, dismissed === 'striker' ? striker : non)}>
+                    disabled={wicketType === 'caught' && !fielderId}
+                    onClick={() => addBall(
+                      0,
+                      null,
+                      0,
+                      wicketType,
+                      dismissed === 'striker' ? striker : non,
+                      wicketType === 'caught' ? fielderId : null
+                    )}>
                     Confirm wicket
                   </button>
                   <button className="button button-ghost" onClick={() => setWicketOpen(false)}>Cancel</button>
@@ -1655,7 +1677,7 @@ function LivePage() {
           const bowlerName = names[wicket.bowler_id] || 'Unknown bowler';
           const dismissalDescriptions = {
             bowled: `b ${bowlerName}`,
-            caught: `c (fielder not recorded) b ${bowlerName}`,
+            caught: `c ${names[wicket.fielder_id] || 'fielder not recorded'} b ${bowlerName}`,
             lbw: `lbw b ${bowlerName}`,
             stumped: `st ${bowlerName}`,
             run_out: 'run out',
