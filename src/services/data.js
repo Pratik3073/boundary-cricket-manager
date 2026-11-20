@@ -16,10 +16,15 @@ export async function savePlayer(player) {
 
   const query = player.id
     ? db.from('players')
-        .update({ name: player.name, phone: player.phone || null })
+        .update({
+          name: player.name,
+          phone: player.phone || null
+        })
         .eq('id', player.id)
-    : db.from('players')
-        .insert({ name: player.name, phone: player.phone || null });
+    : db.from('players').insert({
+        name: player.name,
+        phone: player.phone || null
+      });
 
   const { error } = await query;
   if (error) throw error;
@@ -47,7 +52,8 @@ export async function getMatches() {
 export async function createMatch(input) {
   const db = requireSupabase();
 
-  const { data: match, error } = await db.from('matches')
+  const { data: match, error } = await db
+    .from('matches')
     .insert({
       title: input.title,
       team_a_name: input.teamA,
@@ -78,7 +84,10 @@ export async function createMatch(input) {
     }))
   ];
 
-  const { error: rosterError } = await db.from('match_players').insert(roster);
+  const { error: rosterError } = await db
+    .from('match_players')
+    .insert(roster);
+
   if (rosterError) throw rosterError;
 
   return match;
@@ -88,14 +97,26 @@ export async function getMatchBundle(matchId) {
   const db = requireSupabase();
 
   const [matchRes, rosterRes, inningsRes] = await Promise.all([
-    db.from('matches').select('*').eq('id', matchId).single(),
+    db.from('matches')
+      .select('*')
+      .eq('id', matchId)
+      .single(),
 
-    db.from('match_players').select('*, players(*)')
+    db.from('match_players')
+      .select('*, players(*)')
       .eq('match_id', matchId)
       .order('batting_order'),
 
     db.from('innings')
-      .select('*, deliveries(*, striker:players!deliveries_striker_id_fkey(id,name), non_striker:players!deliveries_non_striker_id_fkey(id,name), bowler:players!deliveries_bowler_id_fkey(id,name))')
+      .select(`
+        *,
+        deliveries(
+          *,
+          striker:players!deliveries_striker_id_fkey(id,name),
+          non_striker:players!deliveries_non_striker_id_fkey(id,name),
+          bowler:players!deliveries_bowler_id_fkey(id,name)
+        )
+      `)
       .eq('match_id', matchId)
       .order('innings_number')
   ]);
@@ -111,8 +132,7 @@ export async function getMatchBundle(matchId) {
   };
 }
 
-// START INNINGS
-// Wicketkeeper is now saved when the innings is created.
+// Super Over is optional, so existing regular innings calls remain compatible.
 export async function startInnings(
   matchId,
   number,
@@ -122,11 +142,13 @@ export async function startInnings(
   bowler,
   wicketkeeper,
   tossWinner,
-  tossDecision
+  tossDecision,
+  superOver = null
 ) {
   const db = requireSupabase();
 
-  const { error: matchError } = await db.from('matches')
+  const { error: matchError } = await db
+    .from('matches')
     .update({
       status: 'live',
       toss_winner: tossWinner,
@@ -136,29 +158,42 @@ export async function startInnings(
 
   if (matchError) throw matchError;
 
-  const { data, error } = await db.from('innings')
-    .insert({
-      match_id: matchId,
-      innings_number: number,
-      batting_team: battingTeam,
-      striker_id: striker,
-      non_striker_id: nonStriker,
-      current_bowler_id: bowler,
-      wicketkeeper_id: wicketkeeper,
-      status: 'live'
-    })
+  const row = {
+    match_id: matchId,
+    innings_number: number,
+    batting_team: battingTeam,
+    striker_id: striker,
+    non_striker_id: nonStriker,
+    current_bowler_id: bowler,
+    wicketkeeper_id: wicketkeeper,
+    status: 'live',
+
+    // Super Over metadata
+    is_super_over: Boolean(superOver?.isSuperOver),
+    super_over_number: superOver?.isSuperOver
+      ? superOver.superOverNumber
+      : null,
+    super_over_innings: superOver?.isSuperOver
+      ? superOver.superOverInnings
+      : null
+  };
+
+  const { data, error } = await db
+    .from('innings')
+    .insert(row)
     .select()
     .single();
 
   if (error) throw error;
+
   return data;
 }
 
-// RECORD DELIVERY
 export async function recordDelivery(innings, delivery, nextState) {
   const db = requireSupabase();
 
-  const { error } = await db.from('deliveries')
+  const { error } = await db
+    .from('deliveries')
     .insert({
       innings_id: innings.id,
       ...delivery
@@ -166,18 +201,19 @@ export async function recordDelivery(innings, delivery, nextState) {
 
   if (error) throw error;
 
-  const { error: updateError } = await db.from('innings')
+  const { error: updateError } = await db
+    .from('innings')
     .update(nextState)
     .eq('id', innings.id);
 
   if (updateError) throw updateError;
 }
 
-// UNDO DELIVERY
 export async function undoDelivery(innings, previousState) {
   const db = requireSupabase();
 
-  const { data: last, error } = await db.from('deliveries')
+  const { data: last, error } = await db
+    .from('deliveries')
     .select('id')
     .eq('innings_id', innings.id)
     .order('created_at', { ascending: false })
@@ -186,20 +222,21 @@ export async function undoDelivery(innings, previousState) {
 
   if (error) throw error;
 
-  const { error: deleteError } = await db.from('deliveries')
+  const { error: deleteError } = await db
+    .from('deliveries')
     .delete()
     .eq('id', last.id);
 
   if (deleteError) throw deleteError;
 
-  const { error: updateError } = await db.from('innings')
+  const { error: updateError } = await db
+    .from('innings')
     .update(previousState)
     .eq('id', innings.id);
 
   if (updateError) throw updateError;
 }
 
-// FINISH MATCH
 export async function finishMatch(matchId) {
   const { error } = await requireSupabase()
     .from('matches')
@@ -209,7 +246,6 @@ export async function finishMatch(matchId) {
   if (error) throw error;
 }
 
-// DELETE MATCH
 export async function deleteMatch(matchId) {
   const { error } = await requireSupabase()
     .from('matches')
@@ -219,7 +255,7 @@ export async function deleteMatch(matchId) {
   if (error) throw error;
 }
 
-// PLAYER RECORDS
+// Career records intentionally exclude Super Over deliveries.
 export async function getPlayerRecords() {
   const db = requireSupabase();
 
@@ -232,12 +268,15 @@ export async function getPlayerRecords() {
       .select('player_id, match_id'),
 
     db.from('innings')
-      .select('id, match_id, batting_team, deliveries(*)')
+      .select('id, match_id, batting_team, is_super_over, deliveries(*)')
   ]);
 
   if (playersRes.error) throw playersRes.error;
   if (appearancesRes.error) throw appearancesRes.error;
   if (inningsRes.error) throw inningsRes.error;
+
+  const regularInnings = (inningsRes.data || [])
+    .filter(innings => !innings.is_super_over);
 
   const stats = new Map();
 
@@ -263,13 +302,14 @@ export async function getPlayerRecords() {
     if (row) row.matches.add(appearance.match_id);
   }
 
-  for (const innings of inningsRes.data || []) {
+  for (const innings of regularInnings) {
     for (const delivery of innings.deliveries || []) {
       const batter = stats.get(delivery.striker_id);
       const bowler = stats.get(delivery.bowler_id);
+
       const batterRuns = Number(delivery.batter_runs || 0);
-      const extraRuns = Number(delivery.extra_runs || 0);
-      const totalRuns = batterRuns + extraRuns;
+      const totalRuns =
+        batterRuns + Number(delivery.extra_runs || 0);
 
       if (batter) {
         batter.runs += batterRuns;
@@ -293,7 +333,9 @@ export async function getPlayerRecords() {
       }
 
       if (bowler) {
-        if (delivery.is_legal) bowler.bowlingBalls += 1;
+        if (delivery.is_legal) {
+          bowler.bowlingBalls += 1;
+        }
 
         if (!['bye', 'leg_bye'].includes(delivery.extra_type)) {
           bowler.bowlingRuns += totalRuns;
@@ -309,7 +351,8 @@ export async function getPlayerRecords() {
     }
   }
 
-  for (const innings of inningsRes.data || []) {
+  // Calculate each player's highest score in regular innings only.
+  for (const innings of regularInnings) {
     const inningsRuns = new Map();
 
     for (const delivery of innings.deliveries || []) {
@@ -337,7 +380,9 @@ export async function getPlayerRecords() {
 
     battingAverage: row.outs
       ? (row.runs / row.outs).toFixed(2)
-      : row.runs ? '—' : '0.00',
+      : row.runs
+        ? '—'
+        : '0.00',
 
     strikeRate: row.ballsFaced
       ? ((row.runs / row.ballsFaced) * 100).toFixed(2)
@@ -347,6 +392,7 @@ export async function getPlayerRecords() {
       ? (row.bowlingRuns / (row.bowlingBalls / 6)).toFixed(2)
       : '0.00',
 
-    bowlingOvers: `${Math.floor(row.bowlingBalls / 6)}.${row.bowlingBalls % 6}`
+    bowlingOvers:
+      `${Math.floor(row.bowlingBalls / 6)}.${row.bowlingBalls % 6}`
   }));
 }

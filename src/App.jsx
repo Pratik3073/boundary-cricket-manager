@@ -254,7 +254,7 @@ function MatchCard({ match }) {
     <Link to={`/live/${match.id}`} className="match-card">
       <div className="match-card-head">
         <span className="live-pill">● LIVE</span>
-        <span>{match.overs_limit} OVERS</span>
+        <span>{isSuperOver ? '1 OVER' : `${match.overs_limit} OVERS`}</span>
       </div>
       <div className="match-teams">
         <b>{match.team_a_name}</b><span>VS</span><b>{match.team_b_name}</b>
@@ -921,9 +921,30 @@ function ScoringPage() {
 
   const match = bundle.match;
   const innings = bundle.innings.find(i => i.status === 'live') ||
-    bundle.innings[bundle.innings.length - 1];
+    [...bundle.innings].sort((a, b) => a.innings_number - b.innings_number)[bundle.innings.length - 1];
 
   if (!innings) return <TossPage />;
+
+  const isSuperOver = Boolean(innings.is_super_over);
+  const superOverRound = Number(innings.super_over_number || 0);
+  const superOverInnings = Number(innings.super_over_innings || 0);
+  const thisSuperOver = bundle.innings.filter(i =>
+    i.is_super_over && Number(i.super_over_number) === superOverRound
+  );
+  const superOverFirst = thisSuperOver.find(i => Number(i.super_over_innings) === 1);
+  const superOverFirstRuns = superOverFirst
+    ? calculateInnings(superOverFirst.deliveries || []).runs
+    : 0;
+  const regularFirstInnings = bundle.innings.find(i => !i.is_super_over && i.innings_number === 1);
+  const regularSecondInnings = bundle.innings.find(i => !i.is_super_over && i.innings_number === 2);
+  const regularFirstRuns = regularFirstInnings
+    ? calculateInnings(regularFirstInnings.deliveries || []).runs
+    : 0;
+  const regularSecondRuns = regularSecondInnings
+    ? calculateInnings(regularSecondInnings.deliveries || []).runs
+    : 0;
+  const regularMatchTied = Boolean(regularSecondInnings?.status === 'completed' &&
+    regularFirstInnings && regularSecondRuns === regularFirstRuns);
 
   const deliveries = [...(innings.deliveries || [])].sort(
     (x, y) => new Date(x.created_at) - new Date(y.created_at)
@@ -952,17 +973,20 @@ function ScoringPage() {
     currentOver % 6 === 0 &&
     lastLegalDelivery?.bowler_id === bowler;
 
-  const firstInnings = bundle.innings.find(i => i.innings_number === 1);
-  const firstRuns = firstInnings
-    ? calculateInnings(firstInnings.deliveries || []).runs
-    : 0;
-
+  const firstInnings = regularFirstInnings;
+  const firstRuns = regularFirstRuns;
   const target = firstRuns + 1;
+  const inningsBallLimit = isSuperOver ? 6 : Number(match.overs_limit) * 6;
+  const inningsWicketLimit = isSuperOver ? 2 : Math.max(0, batting.length - 1);
+  const chaseRuns = isSuperOver ? superOverFirstRuns : firstRuns;
+  const isChasingInnings = isSuperOver
+    ? superOverInnings === 2
+    : innings.innings_number === 2;
 
   const inningsDone =
-    calc.legalBalls >= match.overs_limit * 6 ||
-    calc.wickets >= batting.length - 1 ||
-    (innings.innings_number === 2 && calc.runs >= target);
+    calc.legalBalls >= inningsBallLimit ||
+    calc.wickets >= inningsWicketLimit ||
+    (isChasingInnings && calc.runs > chaseRuns);
 
   const opponentTeam = innings.batting_team === 'A' ? 'B' : 'A';
   const secondBatters = roster.filter(p => p.team === opponentTeam);
@@ -1137,16 +1161,58 @@ function ScoringPage() {
     }
   }
 
-  async function startSecond(e) {
+  async function startNextInnings(e) {
     e.preventDefault();
+    if (!secondStriker || !secondNon || !secondBowler || !secondKeeper) {
+      setError('Select both batters, a bowler and a wicketkeeper.');
+      return;
+    }
+    if (secondBowler === secondKeeper) {
+      setError('The bowler cannot also be selected as wicketkeeper.');
+      return;
+    }
     setBusy(true);
     setError('');
 
     try {
+      const nextNumber = Math.max(...bundle.innings.map(i => Number(i.innings_number)), 0) + 1;
+      let nextIsSuperOver = false;
+      let nextRound = null;
+      let nextSuperOverInnings = null;
+      let nextBattingTeam;
+
+      if (!isSuperOver && innings.innings_number === 1) {
+        nextBattingTeam = opponentTeam;
+      } else if (!isSuperOver && innings.innings_number === 2 && regularMatchTied) {
+        nextIsSuperOver = true;
+        nextRound = 1;
+        nextSuperOverInnings = 1;
+        // Standard Super Over order: the team that batted second bats first.
+        nextBattingTeam = regularSecondInnings.batting_team;
+      } else if (isSuperOver && superOverInnings === 1) {
+        nextIsSuperOver = true;
+        nextRound = superOverRound;
+        nextSuperOverInnings = 2;
+        nextBattingTeam = opponentTeam;
+      } else if (isSuperOver && superOverInnings === 2 && calc.runs === superOverFirstRuns) {
+        nextIsSuperOver = true;
+        nextRound = superOverRound + 1;
+        nextSuperOverInnings = 1;
+        // Reverse the batting order for each subsequent tied Super Over.
+        nextBattingTeam = superOverFirst.batting_team === 'A' ? 'B' : 'A';
+      } else {
+        throw new Error('There is no next innings to start.');
+      }
+
       await startInnings(
-        id, 2, opponentTeam, secondStriker, secondNon,
-        secondBowler, secondKeeper, match.toss_winner, match.toss_decision
+        id, nextNumber, nextBattingTeam, secondStriker, secondNon,
+        secondBowler, secondKeeper, match.toss_winner, match.toss_decision,
+        { isSuperOver: nextIsSuperOver, superOverNumber: nextRound, superOverInnings: nextSuperOverInnings }
       );
+      setSecondStriker('');
+      setSecondNon('');
+      setSecondBowler('');
+      setSecondKeeper('');
       await load();
     } catch (e) {
       setError(e.message);
@@ -1155,80 +1221,135 @@ function ScoringPage() {
     }
   }
 
-  if (innings.status === 'completed' && innings.innings_number === 1) {
+  const nextIsSuperOver = isSuperOver || regularMatchTied;
+  const nextBattingTeam = !isSuperOver && innings.innings_number === 1
+    ? opponentTeam
+    : !isSuperOver
+      ? regularSecondInnings?.batting_team
+      : superOverInnings === 1
+        ? opponentTeam
+        : superOverFirst?.batting_team === 'A' ? 'B' : 'A';
+  const nextBowlingTeam = nextBattingTeam === 'A' ? 'B' : 'A';
+  const setupBatters = roster.filter(p => p.team === nextBattingTeam);
+  const setupBowlers = roster.filter(p => p.team === nextBowlingTeam);
+  const setupTitle = !isSuperOver && innings.innings_number === 1
+    ? 'Start second innings'
+    : regularMatchTied
+      ? 'MATCH TIED — START SUPER OVER'
+      : isSuperOver && superOverInnings === 1
+        ? `SUPER OVER ${superOverRound} — SECOND INNINGS`
+        : `SUPER OVER ${superOverRound + 1} — TIED AGAIN`;
+
+  const shouldShowNextSetup = innings.status === 'completed' && (
+    (!isSuperOver && innings.innings_number === 1) ||
+    (!isSuperOver && innings.innings_number === 2 && regularMatchTied) ||
+    (isSuperOver && superOverInnings === 1) ||
+    (isSuperOver && superOverInnings === 2 && calc.runs === superOverFirstRuns)
+  );
+
+  if (shouldShowNextSetup) {
+    const isFirstRegularBreak = !isSuperOver && innings.innings_number === 1;
+    const isStartingFirstSuperOver = regularMatchTied;
+    const isTiedSuperOver = isSuperOver && superOverInnings === 2 && calc.runs === superOverFirstRuns;
     return (
       <Shell>
-        <PageHeader eyebrow="INNINGS BREAK" title="Start second innings"
-          subtitle={`${match.team_a_name} vs ${match.team_b_name} · First innings completed`} />
+        <PageHeader
+          eyebrow={isStartingFirstSuperOver ? 'MATCH TIED' : isSuperOver ? 'SUPER OVER' : 'INNINGS BREAK'}
+          title={setupTitle}
+          subtitle={`${match.team_a_name} vs ${match.team_b_name} · ${isSuperOver ? `Super Over ${superOverRound}` : 'Match innings'}`}
+        />
         <Notice>{error}</Notice>
-
-        <form className="panel toss-form" onSubmit={startSecond}>
-          <div className="notice info">
-            Target: {firstRuns + 1} runs for{' '}
-            {opponentTeam === 'A' ? match.team_a_name : match.team_b_name}.
+        {(isStartingFirstSuperOver || isTiedSuperOver) && (
+          <div className="tie-announcement">
+            <Trophy size={28} />
+            <strong>{isTiedSuperOver ? 'SUPER OVER TIED' : 'MATCH TIED'}</strong>
+            <span>{isTiedSuperOver ? `Both teams scored ${calc.runs}. Another Super Over will decide the winner.` : `Both teams scored ${regularFirstRuns}. A Super Over will decide the winner.`}</span>
           </div>
-
+        )}
+        <form className="panel toss-form super-over-setup" onSubmit={startNextInnings}>
+          <div className="super-over-banner">
+            <span>{nextIsSuperOver ? `SUPER OVER ${isStartingFirstSuperOver ? 1 : isSuperOver ? (superOverInnings === 1 ? superOverRound : superOverRound + 1) : 1}` : 'SECOND INNINGS'}</span>
+            <b>{nextBattingTeam === 'A' ? match.team_a_name : match.team_b_name} batting</b>
+            <small>{nextIsSuperOver ? '1 over · 6 legal balls · maximum 2 wickets' : `Target: ${firstRuns + 1} runs`}</small>
+          </div>
           <div className="two-col">
             <label>Opening striker
               <select required value={secondStriker} onChange={e => setSecondStriker(e.target.value)}>
                 <option value="">Select batter</option>
-                {secondBatters.map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
-                ))}
+                {setupBatters.map(p => <option key={p.player_id} value={p.player_id}>{p.players.name}</option>)}
               </select>
             </label>
-
             <label>Non-striker
               <select required value={secondNon} onChange={e => setSecondNon(e.target.value)}>
                 <option value="">Select batter</option>
-                {secondBatters.filter(p => p.player_id !== secondStriker).map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
-                ))}
+                {setupBatters.filter(p => p.player_id !== secondStriker).map(p => <option key={p.player_id} value={p.player_id}>{p.players.name}</option>)}
               </select>
             </label>
           </div>
-
           <label>Opening bowler
             <select required value={secondBowler} onChange={e => {
-              const selectedBowler = e.target.value;
-              setSecondBowler(selectedBowler);
-              if (secondKeeper === selectedBowler) setSecondKeeper('');
+              const value = e.target.value;
+              setSecondBowler(value);
+              if (secondKeeper === value) setSecondKeeper('');
             }}>
               <option value="">Select bowler</option>
-              {secondBowlers.map(p => (
-                <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
-              ))}
+              {setupBowlers.map(p => <option key={p.player_id} value={p.player_id}>{p.players.name}</option>)}
             </select>
           </label>
-
           <label>Wicketkeeper
             <select required value={secondKeeper} onChange={e => setSecondKeeper(e.target.value)}>
               <option value="">Select wicketkeeper</option>
-              {secondBowlers.filter(p => p.player_id !== secondBowler).map(p => (
-                <option key={p.player_id} value={p.player_id}>{p.players.name}</option>
-              ))}
+              {setupBowlers.filter(p => p.player_id !== secondBowler).map(p => <option key={p.player_id} value={p.player_id}>{p.players.name}</option>)}
             </select>
           </label>
-
           <button className="button button-lime full" disabled={busy}>
-            Start second innings <ArrowRight size={16} />
+            {busy ? 'Starting…' : nextIsSuperOver ? 'Start Super Over innings' : 'Start second innings'} <ArrowRight size={16} />
           </button>
         </form>
       </Shell>
     );
   }
 
-  if (innings.status === 'completed' && innings.innings_number === 2) {
+  if (innings.status === 'completed' && !isSuperOver && innings.innings_number === 2) {
+    const won = calc.runs > firstRuns;
+    const margin = won ? `${Math.max(0, batting.length - 1 - calc.wickets)} wickets` : `${firstRuns - calc.runs} runs`;
     return (
       <Shell>
         <div className="empty-state">
           <Trophy size={30} />
-          <b>Both innings completed</b>
+          <b>{regularMatchTied ? 'MATCH TIED' : 'Match completed'}</b>
           <span>First innings: {firstRuns} · Second innings: {calc.runs}/{calc.wickets}</span>
+          {regularMatchTied ? <p>A Super Over is ready to begin.</p> : <p>{won ? `${innings.batting_team === 'A' ? match.team_a_name : match.team_b_name} won by ${margin}.` : `${firstInnings.batting_team === 'A' ? match.team_a_name : match.team_b_name} won the match.`}</p>}
+          {!regularMatchTied && <button className="button button-lime" onClick={finish}>Complete match</button>}
+        </div>
+      </Shell>
+    );
+  }
+
+  if (innings.status === 'completed' && isSuperOver && superOverInnings === 2 && calc.runs !== superOverFirstRuns) {
+    const winner = calc.runs > superOverFirstRuns ? innings.batting_team : superOverFirst.batting_team;
+    const winnerName = winner === 'A' ? match.team_a_name : match.team_b_name;
+    const loserName = winner === 'A' ? match.team_b_name : match.team_a_name;
+    return (
+      <Shell>
+        <div className="super-over-result">
+          <Trophy size={34} />
+          <div className="eyebrow">SUPER OVER {superOverRound} RESULT</div>
+          <h1>{winnerName} <em>WIN!</em></h1>
+          <p>{winnerName} beat {loserName} in Super Over {superOverRound}.</p>
+          <div className="super-over-scoreline">
+            <span>{superOverFirstRuns}/{calculateInnings(superOverFirst.deliveries || []).wickets}</span>
+            <b>VS</b>
+            <span>{calc.runs}/{calc.wickets}</span>
+          </div>
           <button className="button button-lime" onClick={finish}>Complete match</button>
         </div>
       </Shell>
     );
+  }
+
+  if (innings.status === 'completed' && isSuperOver && superOverInnings === 2 && calc.runs === superOverFirstRuns) {
+    return <Shell><div className="tie-announcement"><Trophy size={28}/><strong>SUPER OVER TIED</strong><span>Both teams scored {calc.runs}. Another Super Over is required.</span></div></Shell>;
   }
 
   return (
@@ -1237,7 +1358,7 @@ function ScoringPage() {
         <div>
           <div className="eyebrow dark-eyebrow">LIVE SCORING DESK</div>
           <h1>{match.team_a_name} <span>vs</span> {match.team_b_name}</h1>
-          <p>{match.overs_limit} overs · Innings {innings.innings_number} · <Status status="live" /></p>
+          <p>{isSuperOver ? `SUPER OVER ${superOverRound} · ${superOverInnings === 1 ? 'FIRST' : 'SECOND'} INNINGS · 1 OVER` : `${match.overs_limit} overs · Innings ${innings.innings_number}`} · <Status status="live" /></p>
         </div>
         <Link className="button button-ghost small" to={`/live/${id}`} target="_blank">
           <Radio size={15} /> Public view
@@ -1249,7 +1370,7 @@ function ScoringPage() {
 
       <div className="scoring-layout">
         <div className="scoring-main">
-          <div className="scoreboard panel dark-scoreboard">
+          <div className={`scoreboard panel dark-scoreboard ${isSuperOver ? 'super-over-scoreboard' : ''}`}>
             <div className="scoreboard-label">
               <span>{innings.batting_team === 'A' ? match.team_a_name : match.team_b_name} BATTING</span>
               <span className="live-pill">● LIVE</span>
@@ -1446,7 +1567,7 @@ function ScoringPage() {
                 disabled={!deliveries.length || busy}>End innings</button>
               {inningsDone && (
                 <button className="button button-lime" onClick={endInnings} disabled={busy}>
-                  {innings.innings_number === 1 ? 'Complete first innings' : 'Complete second innings'}
+                  {isSuperOver ? `Complete Super Over ${superOverInnings === 1 ? 'first' : 'second'} innings` : innings.innings_number === 1 ? 'Complete first innings' : 'Complete second innings'}
                 </button>
               )}
             </div>
@@ -1658,14 +1779,21 @@ function LivePage() {
   const inns = bundle.innings || [];
   const roster = bundle.roster || [];
 
-  const current = inns.find(i => i.status === 'live') || inns[inns.length - 1];
+  const current = inns.find(i => i.status === 'live') || [...inns].sort((a,b) => a.innings_number-b.innings_number)[inns.length - 1];
+  const currentIsSuperOver = Boolean(current?.is_super_over);
+  const currentSuperOverRound = Number(current?.super_over_number || 0);
+  const superOverInningsForRound = inns.filter(i => i.is_super_over && Number(i.super_over_number) === currentSuperOverRound);
+  const soFirst = superOverInningsForRound.find(i => Number(i.super_over_innings) === 1);
+  const soSecond = superOverInningsForRound.find(i => Number(i.super_over_innings) === 2);
+  const regularInns = inns.filter(i => !i.is_super_over);
+  const tiedAfterRegular = regularInns.length >= 2 && regularInns[1].status === 'completed' && calculateInnings(regularInns[0].deliveries || []).runs === calculateInnings(regularInns[1].deliveries || []).runs;
   // Use the actual number of players selected for the chasing team.
   // A team can lose at most one fewer wicket than its player count.
   const battingTeamPlayers = roster.filter(
     p => p.team === current?.batting_team
   );
   const maxWickets = Math.max(0, battingTeamPlayers.length - 1);
-  const first = inns.find(i => i.innings_number === 1);
+  const first = regularInns.find(i => i.innings_number === 1);
 
   const currentCalc = current
     ? calculateInnings(current.deliveries || [])
@@ -1684,7 +1812,7 @@ function LivePage() {
     : m.team_b_name;
 
   // CHASE CALCULATIONS
-  const isChasing = current?.innings_number === 2 && !!firstCalc;
+  const isChasing = !currentIsSuperOver && current?.innings_number === 2 && !!firstCalc;
   const target = firstCalc ? firstCalc.runs + 1 : 0;
 
   const runsRequired = isChasing
@@ -1760,7 +1888,7 @@ function LivePage() {
       };
 
       inns.forEach(inn => {
-        if (inn.batting_team !== team) return;
+        if (inn.is_super_over || inn.batting_team !== team) return;
 
         const deliveries = inn.deliveries || [];
         const calc = calculateInnings(deliveries);
@@ -1811,7 +1939,7 @@ function LivePage() {
       };
 
       inns.forEach(inn => {
-        if (inn.batting_team === team) return;
+        if (inn.is_super_over || inn.batting_team === team) return;
 
         const calc = calculateInnings(inn.deliveries || []);
         const bowling = calc.bowlers?.[playerId];
@@ -1847,7 +1975,7 @@ function LivePage() {
       {/* LIVE SCORE */}
       <div className="public-score panel dark-scoreboard">
         <div className="scoreboard-label">
-          <span>{current ? `${battingName} BATTING` : 'MATCH CENTRE'}</span>
+          <span>{current ? `${currentIsSuperOver ? `SUPER OVER ${currentSuperOverRound} · ` : ''}${battingName} BATTING` : 'MATCH CENTRE'}</span>
           {m.status === 'live'
             ? <span className="live-pill">● LIVE</span>
             : <Status status={m.status} />}
@@ -1861,7 +1989,7 @@ function LivePage() {
         <div className="score-meta">
           <span>{currentCalc?.overs || '0.0'} <small>OVERS</small></span>
           <span>CRR {currentCalc?.runRate || '0.00'}</span>
-          <span>{m.overs_limit} OVERS</span>
+          <span>{currentIsSuperOver ? '1 OVER' : `${m.overs_limit} OVERS`}</span>
         </div>
 
         {current && (
@@ -1873,6 +2001,34 @@ function LivePage() {
           </div>
         )}
       </div>
+
+      {tiedAfterRegular && (
+        <div className="tie-announcement public-tie-announcement">
+          <Trophy size={26} />
+          <strong>{currentIsSuperOver ? `SUPER OVER ${currentSuperOverRound}` : 'MATCH TIED'}</strong>
+          <span>{currentIsSuperOver ? 'Super Over decider in progress.' : 'The match is tied. A Super Over will decide the winner.'}</span>
+        </div>
+      )}
+
+      {currentIsSuperOver && (
+        <div className="super-over-public panel">
+          <div className="eyebrow">SUPER OVER {currentSuperOverRound}</div>
+          <h2>One over. Two wickets. One winner.</h2>
+          <div className="super-over-scoreline">
+            <span>{soFirst ? `${calculateInnings(soFirst.deliveries || []).runs}/${calculateInnings(soFirst.deliveries || []).wickets}` : '—'}</span>
+            <b>VS</b>
+            <span>{soSecond ? `${calculateInnings(soSecond.deliveries || []).runs}/${calculateInnings(soSecond.deliveries || []).wickets}` : current?.super_over_innings === 2 && currentCalc ? `${currentCalc.runs}/${currentCalc.wickets}` : '—'}</span>
+          </div>
+          {soSecond?.status === 'completed' && soFirst &&
+            calculateInnings(soSecond.deliveries || []).runs !== calculateInnings(soFirst.deliveries || []).runs && (
+              <p className="super-over-public-result">
+                {(calculateInnings(soSecond.deliveries || []).runs > calculateInnings(soFirst.deliveries || []).runs
+                  ? (soSecond.batting_team === 'A' ? m.team_a_name : m.team_b_name)
+                  : (soFirst.batting_team === 'A' ? m.team_a_name : m.team_b_name))} won the Super Over.
+              </p>
+            )}
+        </div>
+      )}
 
       {/* LIVE CHASE TRACKER */}
       {isChasing && (
@@ -1917,7 +2073,7 @@ function LivePage() {
               <div className="innings-summary" key={i.id}>
                 <div>
                   <b>{i.batting_team === 'A' ? m.team_a_name : m.team_b_name}</b>
-                  <span>Innings {i.innings_number}</span>
+                  <span>{i.is_super_over ? `Super Over ${i.super_over_number} · Innings ${i.super_over_innings}` : `Innings ${i.innings_number}`}</span>
                 </div>
                 <strong>{c.runs}/{c.wickets}<small> ({c.overs} ov)</small></strong>
               </div>
