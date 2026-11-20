@@ -1918,6 +1918,17 @@ function LivePage() {
     ? calculateInnings(current.deliveries || [])
     : null;
 
+  const superOverChasing = currentIsSuperOver && Number(current?.super_over_innings) === 2 && !!soFirst;
+  const superOverTarget = superOverChasing
+    ? calculateInnings(soFirst.deliveries || []).runs + 1
+    : 0;
+  const superOverRunsRequired = superOverChasing
+    ? Math.max(0, superOverTarget - (currentCalc?.runs || 0))
+    : 0;
+  const superOverBallsRemaining = superOverChasing
+    ? Math.max(0, 6 - (currentCalc?.legalBalls || 0))
+    : 0;
+
   const firstCalc = first
     ? calculateInnings(first.deliveries || [])
     : null;
@@ -2138,6 +2149,17 @@ function LivePage() {
             <b>VS</b>
             <span>{soSecond ? `${calculateInnings(soSecond.deliveries || []).runs}/${calculateInnings(soSecond.deliveries || []).wickets}` : current?.super_over_innings === 2 && currentCalc ? `${currentCalc.runs}/${currentCalc.wickets}` : '—'}</span>
           </div>
+          {superOverChasing && (
+            <div
+              className="super-over-chase-info"
+              style={{ marginTop: 18, textAlign: 'center', fontWeight: 600, fontSize: 16 }}
+              aria-live="polite"
+            >
+              {superOverRunsRequired > 0
+                ? `${battingName} need ${superOverRunsRequired} ${superOverRunsRequired === 1 ? 'run' : 'runs'} from ${superOverBallsRemaining} ${superOverBallsRemaining === 1 ? 'ball' : 'balls'}`
+                : `${battingName} have achieved the target`}
+            </div>
+          )}
           {soSecond?.status === 'completed' && soFirst &&
             calculateInnings(soSecond.deliveries || []).runs !== calculateInnings(soFirst.deliveries || []).runs && (
               <p className="super-over-public-result">
