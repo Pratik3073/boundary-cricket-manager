@@ -892,6 +892,7 @@ function ScoringPage() {
   const [busy, setBusy] = useState(false);
   const [newBatter, setNewBatter] = useState('');
   const [newBowler, setNewBowler] = useState('');
+  const [bowlerChangeReason, setBowlerChangeReason] = useState('injury');
   const [newKeeper, setNewKeeper] = useState('');
   const [wicketOpen, setWicketOpen] = useState(false);
   const [wicketType, setWicketType] = useState('bowled');
@@ -967,6 +968,20 @@ function ScoringPage() {
 
   const currentOver = deliveries.filter(d => d.is_legal).length;
   const lastLegalDelivery = [...deliveries].reverse().find(d => d.is_legal);
+
+  // Count no-balls in the current over only. The count resets after six legal balls.
+  const currentOverNoBalls = deliveries.reduce((state, delivery) => {
+    if (delivery.extra_type === 'no_ball') state.noBalls += 1;
+    if (delivery.is_legal) {
+      state.legalBalls += 1;
+      if (state.legalBalls === 6) {
+        state.legalBalls = 0;
+        state.noBalls = 0;
+      }
+    }
+    return state;
+  }, { legalBalls: 0, noBalls: 0 }).noBalls;
+  const noBallReplacementAvailable = currentOverNoBalls >= 2;
 
   // Allow the scorer to select the next bowler after the previous over.
   const overDone = currentOver > 0 &&
@@ -1090,7 +1105,10 @@ function ScoringPage() {
       if (updateError) throw updateError;
       setNewBowler('');
       await load();
-      setNotice('Next bowler updated successfully');
+      setNotice(overDone
+        ? 'Next over bowler updated successfully'
+        : `${bowlerChangeReason === 'two_no_balls' ? 'Bowler changed after two no-balls in the same over' : 'Bowler changed due to injury'}. ${playerName(newBowler)} will bowl the remaining deliveries.`);
+      setBowlerChangeReason('injury');
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1527,6 +1545,47 @@ function ScoringPage() {
                   disabled={busy || !newKeeper || newKeeper === wicketkeeper}
                   onClick={changeWicketkeeper}>
                   Update wicketkeeper
+                </button>
+              </div>
+            )}
+
+            {!inningsDone && bowler && !overDone && (
+              <div className="inline-editor">
+                <b>CHANGE CURRENT BOWLER</b>
+                <p className="muted">
+                  Choose why the bowler is being changed. Previous deliveries stay credited
+                  to the current bowler; the replacement receives credit for future deliveries.
+                </p>
+                <label>Reason for change
+                  <select value={bowlerChangeReason} onChange={e => setBowlerChangeReason(e.target.value)}>
+                    <option value="injury">Bowler injured / unable to continue</option>
+                    <option value="two_no_balls" disabled={!noBallReplacementAvailable}>
+                      Two no-balls in the same over ({currentOverNoBalls}/2)
+                    </option>
+                  </select>
+                </label>
+                {bowlerChangeReason === 'two_no_balls' && !noBallReplacementAvailable && (
+                  <p className="muted">This option becomes available after two no-balls in the current over.</p>
+                )}
+                {noBallReplacementAvailable && (
+                  <p className="muted">This bowler has delivered {currentOverNoBalls} no-balls in this over.</p>
+                )}
+                <label>Replacement bowler
+                  <select value={newBowler} onChange={e => setNewBowler(e.target.value)}>
+                    <option value="">Select replacement bowler</option>
+                    {bowling
+                      .filter(p => p.player_id !== bowler && p.player_id !== wicketkeeper)
+                      .map(p => (
+                        <option key={p.player_id} value={p.player_id}>
+                          {p.players?.name || 'Unknown player'}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <button className="button button-dark"
+                  disabled={busy || !newBowler || newBowler === bowler || (bowlerChangeReason === 'two_no_balls' && !noBallReplacementAvailable)}
+                  onClick={changeBowler}>
+                  Change bowler
                 </button>
               </div>
             )}
