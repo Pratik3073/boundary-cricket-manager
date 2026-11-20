@@ -254,7 +254,7 @@ function MatchCard({ match }) {
     <Link to={`/live/${match.id}`} className="match-card">
       <div className="match-card-head">
         <span className="live-pill">● LIVE</span>
-        <span>{isSuperOver ? '1 OVER' : `${match.overs_limit} OVERS`}</span>
+        <span>{match.overs_limit} OVERS</span>
       </div>
       <div className="match-teams">
         <b>{match.team_a_name}</b><span>VS</span><b>{match.team_b_name}</b>
