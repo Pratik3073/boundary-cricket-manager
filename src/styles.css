@@ -2168,3 +2168,88 @@ td small {
   border-top: 1px solid rgba(255,255,255,.16);
   color: #c9f36a; text-align: center; font-weight: 700;
 }
+
+
+/* Live Chase Calculator */
+.chase-calculator {
+  padding: 22px;
+  margin-bottom: 16px;
+  border: 1px solid #dfe8dc;
+  background: #ffffff;
+}
+.chase-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.chase-heading h2 { margin: 5px 0 0; font-size: 20px; }
+.chase-live {
+  color: #347c45;
+  background: #eaf6e9;
+  padding: 7px 11px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.chase-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.chase-stat {
+  background: #f3f6f1;
+  border-radius: 10px;
+  padding: 15px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.chase-stat small {
+  font-size: 10px;
+  color: #78877c;
+  font-weight: 700;
+  letter-spacing: .7px;
+}
+.chase-stat strong {
+  font-size: 27px;
+  color: #173d2d;
+  font-family: 'Space Grotesk', sans-serif;
+}
+.chase-stat.highlight { background: #eff8d9; }
+.chase-stat.highlight strong { color: #426d19; }
+.chase-progress { margin-top: 20px; }
+.chase-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: #718078;
+  margin-bottom: 9px;
+}
+.chase-progress-track {
+  height: 8px;
+  background: #e9eee7;
+  border-radius: 20px;
+  overflow: hidden;
+}
+.chase-progress-fill {
+  height: 100%;
+  background: #9bcf4c;
+  border-radius: 20px;
+  transition: width .25s ease;
+}
+.chase-complete {
+  padding: 20px;
+  text-align: center;
+  color: #347c45;
+  background: #eaf6e9;
+  border-radius: 10px;
+  font-weight: 800;
+  font-size: 20px;
+}
+@media (max-width: 600px) {
+  .chase-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chase-stat strong { font-size: 24px; }
+  .chase-calculator { padding: 16px; }
+}

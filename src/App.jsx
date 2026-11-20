@@ -988,6 +988,16 @@ function ScoringPage() {
     calc.wickets >= inningsWicketLimit ||
     (isChasingInnings && calc.runs > chaseRuns);
 
+  // Live chase calculator: uses legal balls, so wides and no-balls do not
+  // reduce the remaining-ball count.
+  const chaseTarget = chaseRuns + 1;
+  const runsRemaining = Math.max(0, chaseTarget - calc.runs);
+  const ballsRemaining = Math.max(0, inningsBallLimit - calc.legalBalls);
+  const requiredRunRate = ballsRemaining > 0
+    ? ((runsRemaining / ballsRemaining) * 6).toFixed(2)
+    : runsRemaining === 0 ? '0.00' : '—';
+  const showChaseInfo = isChasingInnings;
+
   const opponentTeam = innings.batting_team === 'A' ? 'B' : 'A';
   const secondBatters = roster.filter(p => p.team === opponentTeam);
   const secondBowlers = roster.filter(p => p.team === innings.batting_team);
@@ -1572,6 +1582,56 @@ function ScoringPage() {
               )}
             </div>
           </div>
+
+          {showChaseInfo && (
+            <div className="panel chase-calculator">
+              <div className="chase-heading">
+                <div>
+                  <span className="eyebrow">LIVE CHASE</span>
+                  <h2>Chase Calculator</h2>
+                </div>
+                <span className="chase-live">● LIVE</span>
+              </div>
+
+              {runsRemaining === 0 ? (
+                <div className="chase-complete">TARGET ACHIEVED!</div>
+              ) : (
+                <div className="chase-grid">
+                  <div className="chase-stat">
+                    <small>TARGET</small>
+                    <strong>{chaseTarget}</strong>
+                  </div>
+                  <div className="chase-stat highlight">
+                    <small>RUNS REQUIRED</small>
+                    <strong>{runsRemaining}</strong>
+                  </div>
+                  <div className="chase-stat">
+                    <small>BALLS LEFT</small>
+                    <strong>{ballsRemaining}</strong>
+                  </div>
+                  <div className="chase-stat">
+                    <small>REQUIRED RR</small>
+                    <strong>{requiredRunRate}</strong>
+                  </div>
+                </div>
+              )}
+
+              <div className="chase-progress">
+                <div className="chase-progress-label">
+                  <span>Current score: {calc.runs}/{calc.wickets}</span>
+                  <span>Target: {chaseTarget}</span>
+                </div>
+                <div className="chase-progress-track">
+                  <div
+                    className="chase-progress-fill"
+                    style={{
+                      width: `${Math.min(100, (calc.runs / chaseTarget) * 100)}%`
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="panel recent-panel">
             <div className="panel-title">
